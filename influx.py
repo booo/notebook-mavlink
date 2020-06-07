@@ -7,7 +7,29 @@ import json
 
 from influxdb import InfluxDBClient
 from pymavlink import mavutil
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def generate_json(drone_name, message, fields):
+    time = datetime.fromtimestamp(message._timestamp, timezone.utc)
+    json_body = {
+            "tags": {
+                "drone": drone_name
+                },
+            "points":[
+                {
+                    "measurement": message.get_type(),
+                    "time": time.isoformat(),
+                    "fields": {}
+                    }
+                ]
+            }
+
+    for field in fields:
+        json_body['points'][0]['fields'][field] = getattr(message, field)
+
+    return json_body
+
 
 def main(host='localhost', port=8089, drone_name=None, input_file=None):
     """Instantiate the connection to the InfluxDB client."""
@@ -22,7 +44,7 @@ def main(host='localhost', port=8089, drone_name=None, input_file=None):
     connection = mavutil.mavlink_connection(input_file)
 
     while message := connection.recv_msg():
-        time = datetime.fromtimestamp(message._timestamp)
+        time = datetime.fromtimestamp(message._timestamp, timezone.utc)
         if message.get_type() == "BAT":
             json_body = {
                     "tags": {
@@ -42,7 +64,6 @@ def main(host='localhost', port=8089, drone_name=None, input_file=None):
             #print(client.write_points(json_body))
             client.send_packet(json_body)
         elif message.get_type() == "GPS":
-            print(message)
             json_body = {
                     "tags": {
                         "drone": drone_name
@@ -83,6 +104,18 @@ def main(host='localhost', port=8089, drone_name=None, input_file=None):
                             }
                         ]
                     }
+            client.send_packet(json_body)
+        elif message.get_type() == "CTUN":
+            pass
+        elif message.get_type() == "BARO":
+            json_body = generate_json(
+                    drone_name,
+                    message,
+                    [
+                        'Alt', 'Press', 'Temp', 'CRt', 'SMS', 'Offset', 'GndTemp',
+                        'Health'
+                    ]
+                    )
             client.send_packet(json_body)
 
     print(f'Import for drone {drone_name} done.')
